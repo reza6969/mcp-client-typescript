@@ -1,20 +1,52 @@
-# mcp-client-typescript
+# MCP Client TypeScript
 
-# Create project directory
-md mcp-client-typescript
-cd mcp-client-typescript
+A TypeScript client for Model Context Protocol (MCP) that integrates with Claude.
 
-# Initialize npm project
-npm init -y
+## Setup
 
-# Install dependencies
-npm install @anthropic-ai/sdk @modelcontextprotocol/sdk dotenv
+1. Install dependencies:
+```bash
+npm install
+```
 
-# Install dev dependencies
-npm install -D @types/node typescript
+2. Set up your environment:
+   - Copy `.env.example` to `.env`
+   - Add your Anthropic API key to `.env`:
+```
+ANTHROPIC_API_KEY=your_api_key_here
+```
 
-# Create source file
-new-item index.ts
+3. Build the project:
+```bash
+npm run build
+```
 
-# node version
-Now using node v18.16.0 (64-bit)
+## Usage
+
+Run the client by providing a path to your MCP server script:
+
+```bash
+node build/index.js <path_to_server_script>
+```
+
+For example:
+```bash
+node build/index.js ./server/mcp_server.js
+```
+
+The client will:
+1. Connect to the specified MCP server
+2. Start an interactive chat session
+3. Process queries using Claude and available MCP tools
+4. Type 'quit' to exit the session
+
+## Environment Variables
+
+- `ANTHROPIC_API_KEY`: Your Anthropic API key (required)
+
+# Build TypeScript
+npm run build
+
+# Run the client
+node build/index.js path/to/server.py # python server
+node build/index.js path/to/build/index.js # node server

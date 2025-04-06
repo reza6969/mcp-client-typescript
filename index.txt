@@ -1,8 +1,5 @@
 import { Anthropic } from "@anthropic-ai/sdk";
-import {
-MessageParam,
-Tool,
-} from "@anthropic-ai/sdk/resources/messages/messages.mjs";
+import {MessageParam,Tool} from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import readline from "readline/promises";
@@ -27,7 +24,6 @@ class MCPClient {
         });
         this.mcp = new Client({ name: "mcp-client-cli", version: "1.0.0" });
     }
-    // methods will go here
 
     async connectToServer(serverScriptPath: string) {
         try {
@@ -36,18 +32,29 @@ class MCPClient {
             if (!isJs && !isPy) {
                 throw new Error("Server script must be a .js or .py file");
             }
+
+            console.log("Attempting to connect to server:", serverScriptPath);
+            console.log("Platform:", process.platform);
+
             const command = isPy
-            ? process.platform === "win32"
-                ? "python"
-                : "python3"
-            : process.execPath;
+                ? process.platform === "win32"
+                    ? "python"
+                    : "python3"
+                : process.execPath;
+
+            console.log("Using command:", command);
+            console.log("With args:", [serverScriptPath]);
 
             this.transport = new StdioClientTransport({
                 command,
                 args: [serverScriptPath],
             });
-            this.mcp.connect(this.transport);
 
+            console.log("Initializing transport...");
+            await this.mcp.connect(this.transport);
+            console.log("Connected to transport");
+
+            console.log("Listing tools...");
             const toolsResult = await this.mcp.listTools();
             this.tools = toolsResult.tools.map((tool) => {
                 return {
@@ -61,8 +68,70 @@ class MCPClient {
                 this.tools.map(({ name }) => name)
             );
         } catch (e) {
-            console.log("Failed to connect to MCP server: ", e);
+            console.error("Failed to connect to MCP server:");
+            console.error("Error details:", e);
+            if (e instanceof Error) {
+                console.error("Stack trace:", e.stack);
+            }
             throw e;
+        }
+    }
+
+    async init() {
+        // Register tools with MCP
+        const toolList = await this.mcp.listTools();
+        this.tools = Array.isArray(toolList) ? toolList : [];
+
+        // Start listening for messages
+        await this.startMessageLoop();
+    }
+
+    private async startMessageLoop() {
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
+
+        while (true) {
+            try {
+                const input = await rl.question('User: ');
+                if (input.toLowerCase() === 'exit') {
+                    break;
+                }
+                await this.handleMessage(input);
+            } catch (error) {
+                console.error('Error processing message:', error);
+            }
+        }
+
+        rl.close();
+    }
+
+    private async handleMessage(userInput: string) {
+        try {
+            const response = await this.anthropic.messages.create({
+                model: "claude-3-sonnet-20240229",
+                max_tokens: 4096,
+                temperature: 0,
+                messages: [{ role: "user", content: userInput }],
+                tools: this.tools
+            });
+
+            const content = response.content[0];
+            if (content.type === 'text') {
+                console.log('Assistant:', content.text);
+            } else if (content.type === 'tool_use') {
+                const toolParams = {
+                    name: content.name,
+                    arguments: content.input as { [key: string]: unknown } || {},
+                    _meta: {}
+                };
+                const result = await this.mcp.callTool(toolParams);
+                console.log('Tool result:', result);
+            }
+        } catch (error) {
+            console.error('Error handling message:', error);
+            throw error;
         }
     }
 
@@ -75,7 +144,7 @@ class MCPClient {
         ];
 
         const response = await this.anthropic.messages.create({
-            model: "claude-3-5-sonnet-20241022",
+            model: "claude-3-sonnet-20240229",
             max_tokens: 1000,
             messages,
             tools: this.tools,
@@ -105,14 +174,16 @@ class MCPClient {
                     content: result.content as string,
                 });
 
-                const response = await this.anthropic.messages.create({
-                    model: "claude-3-5-sonnet-20241022",
+                const followUpResponse = await this.anthropic.messages.create({
+                    model: "claude-3-sonnet-20240229",
                     max_tokens: 1000,
                     messages,
                 });
 
                 finalText.push(
-                    response.content[0].type === "text" ? response.content[0].text : ""
+                    followUpResponse.content[0].type === "text"
+                        ? followUpResponse.content[0].text
+                        : ""
                 );
             }
         }
@@ -131,12 +202,12 @@ class MCPClient {
             console.log("Type your queries or 'quit' to exit.");
 
             while (true) {
-            const message = await rl.question("\nQuery: ");
-            if (message.toLowerCase() === "quit") {
-                break;
-            }
-            const response = await this.processQuery(message);
-            console.log("\n" + response);
+                const message = await rl.question("\nQuery: ");
+                if (message.toLowerCase() === "quit") {
+                    break;
+                }
+                const response = await this.processQuery(message);
+                console.log("\n" + response);
             }
         } finally {
             rl.close();
@@ -150,12 +221,16 @@ class MCPClient {
 
 async function main() {
     if (process.argv.length < 3) {
-        console.log("Usage: node index.ts <path_to_server_script>");
+        console.log("Usage: npm start -- <path_to_server_script>");
         return;
     }
+
+    const serverScriptPath = process.argv[2];
+    console.log("Starting MCP client with server script:", serverScriptPath);
+
     const mcpClient = new MCPClient();
     try {
-        await mcpClient.connectToServer(process.argv[2]);
+        await mcpClient.connectToServer(serverScriptPath);
         await mcpClient.chatLoop();
     } finally {
         await mcpClient.cleanup();
@@ -163,4 +238,10 @@ async function main() {
     }
 }
 
-main();
+main().catch(error => {
+    console.error("Fatal error:", error);
+    process.exit(1);
+});
+
+
+
